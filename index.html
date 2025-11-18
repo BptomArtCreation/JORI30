@@ -102,7 +102,7 @@
       background: linear-gradient(135deg, var(--bg-primary), var(--bg-secondary));
       z-index: 10; transition: var(--transition);
     }
-    .screen.hidden { opacity: 0; visibility: hidden; }
+    .screen.hidden { opacity: 0; visibility: hidden; display: none !important; }
     .branding { text-align: center; margin-bottom: 2rem; padding: 0 1rem; }
     .branding h1 {
       font-size: clamp(1.8rem, 6vw, 3rem); font-weight: 700; margin-bottom: 0.5rem;
@@ -124,7 +124,10 @@
 
     #camera-screen { background: black; justify-content: flex-start; height: 100dvh; display: flex; flex-direction: column; }
     #camera-container { position: relative; flex: 1; overflow: hidden; }
-    #camera { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; z-index: 1; }
+    #camera {
+      position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; z-index: 1;
+      background: black;
+    }
     #target-bg {
       position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%);
       max-width: 40vw; max-height: 40vh; object-fit: contain; opacity: 0.2; z-index: 2; display: none;
@@ -140,7 +143,7 @@
     #scan-line {
       position: absolute; top: 0; left: 0; width: 100%; height: 2px;
       background: linear-gradient(90deg, transparent, var(--accent), transparent);
-      animation: scan 2s linear infinite; opacity: 0.5; z-index: 5;
+      animation: scan 2s linear infinite; opacity: 0.5; z-index: 5; display: none;
     }
     @keyframes scan { 0% { top: 0; opacity: 0; } 10% { opacity: 1; } 90% { opacity: 1; } 100% { top: 100%; opacity: 0; } }
     .topbar, .bottombar { padding: 1rem; background: rgba(0,0,0,0.5); backdrop-filter: blur(10px); z-index: 40; }
@@ -153,13 +156,12 @@
       color: var(--text-secondary); font-size: 0.875rem; display: flex; align-items: center; gap: 0.5rem; z-index: 25;
     }
     .scan-tip {
-      position: absolute; bottom: 8rem; left: 50%; transform: translateX(-50%);
+      position: absolute; bottom: 8rem; left: 50%; transform: translateX(-50%) translateY(20px);
       padding: 1rem 2rem; background: rgba(0,0,0,0.8); border-radius: var(--radius);
       font-size: 1rem; color: var(--text-primary); text-align: center; border: 1px solid var(--accent);
-      opacity: 0; transform: translateX(-50%) translateY(20px); transition: opacity 0.5s ease, transform 0.5s ease; z-index: 25;
+      opacity: 0; transition: opacity 0.5s ease, transform 0.5s ease; z-index: 25;
     }
     .scan-tip.show { opacity: 1; transform: translateX(-50%) translateY(0); }
-    .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); animation: pulse 1.5s infinite; }
     .hidden { display: none !important; }
     canvas.hidden { position: absolute; top: -9999px; left: -9999px; }
     #permission-dialog {
@@ -244,13 +246,15 @@
         <img id="target-bg" src="./assets/target-image.jpg" alt="目標圖片" />
         <div id="overlay-container" aria-hidden="true" class="hidden">
           <video id="overlay-video" loop muted playsinline class="hidden">
-            <source src="data:video/mp4;base64,AAAAIGZ0eXBpc29t..." type="video/mp4" />
+            <!-- TODO: 替換成真實影片來源 -->
+            <source src="" type="video/mp4" />
           </video>
         </div>
         <div id="scan-line"></div>
       </div>
       <div id="status-tip" class="status-tip hidden">
-        <span class="dot"></span><span id="status-text">準備中...</span>
+        <span class="dot" style="width:8px;height:8px;border-radius:50%;background:var(--accent);animation:pulse 1.5s infinite;"></span>
+        <span id="status-text">準備中...</span>
       </div>
       <div id="scan-tip" class="scan-tip hidden">
         <p>請將特定圖片置於鏡頭前方，保持穩定並有良好光線。掃描中...</p>
@@ -288,37 +292,48 @@
 
     class ARApp {
       constructor() {
+        // UI elements
         this.startScreen = document.getElementById('start-screen');
         this.cameraScreen = document.getElementById('camera-screen');
         this.permissionDialog = document.getElementById('permission-dialog');
         this.loading = document.getElementById('loading');
         this.errorTip = document.getElementById('error-tip');
         this.errorText = document.getElementById('error-text');
+
         this.camera = document.getElementById('camera');
         this.cameraContainer = document.getElementById('camera-container');
         this.targetBg = document.getElementById('target-bg');
+
         this.overlayContainer = document.getElementById('overlay-container');
         this.overlayVideo = document.getElementById('overlay-video');
+
         this.statusTip = document.getElementById('status-tip');
         this.statusText = document.getElementById('status-text');
         this.scanTip = document.getElementById('scan-tip');
+        this.scanLine = document.getElementById('scan-line');
+
         this.btnStart = document.getElementById('btn-start');
         this.btnGrant = document.getElementById('btn-grant');
         this.btnDeny = document.getElementById('btn-deny');
         this.btnCapture = document.getElementById('btn-capture');
         this.btnTorch = document.getElementById('btn-torch');
-        this.scanLine = document.getElementById('scan-line');
 
-        // 中央說明 Modal
+        // Modal
         this.infoModal = document.getElementById('info-modal');
         this.modalOverlay = document.getElementById('modal-overlay');
         this.btnInfo = document.getElementById('btn-info');
         this.btnCloseModal = document.getElementById('btn-close-modal');
 
+        // Canvases
+        this.procCanvas = document.getElementById('proc-canvas');
+        this.captureCanvas = document.getElementById('capture-canvas'); // 修正：補上引用
+
+        // Assets
         this.trackerImageUrl = './assets/my-target.mind';
         this.targetImageUrl = './assets/target-image.jpg';
         this.modelUrl = './assets/my-model.glb';
 
+        // AR state
         this.startMindAR = null;
         this.isTorchOn = false;
         this.scene = null;
@@ -335,33 +350,32 @@
         this.fadeInDuration = 1000;
         this.targetBgFadeDuration = 1000;
 
+        this.statusHideTimer = null;
+
         this.hideLoading();
-        setTimeout(() => this.hideLoading(), 5000);
         this.initEventListeners();
       }
 
       initEventListeners() {
-        this.btnStart.addEventListener('click', () => this.requestPermissions());
+        // 直接嘗試開相機；失敗時才顯示自製權限對話框
+        this.btnStart.addEventListener('click', () => this.startCameraFlow());
         this.btnGrant.addEventListener('click', () => this.initCamera());
         this.btnDeny.addEventListener('click', () => this.showStartScreen());
         this.btnCapture.addEventListener('click', () => this.captureScreenshot());
         this.btnTorch.addEventListener('click', () => this.toggleTorch());
 
-        // 中央說明 Modal 事件
+        // Modal
         this.btnInfo.addEventListener('click', () => this.openModal());
         this.btnCloseModal.addEventListener('click', () => this.closeModal());
         this.modalOverlay.addEventListener('click', () => this.closeModal());
 
         window.addEventListener('resize', () => this.handleResize());
+        window.addEventListener('pagehide', () => this.destroy());
+        window.addEventListener('beforeunload', () => this.destroy());
       }
 
-      openModal() {
-        this.infoModal.classList.add('show');
-      }
-
-      closeModal() {
-        this.infoModal.classList.remove('show');
-      }
+      openModal() { this.infoModal.classList.add('show'); }
+      closeModal() { this.infoModal.classList.remove('show'); }
 
       hideLoading() {
         this.loading.classList.add('hidden');
@@ -374,23 +388,29 @@
         this.loading.classList.add('hidden');
       }
 
-      async requestPermissions() {
+      ensureHTTPS() {
         if (location.protocol !== 'https:' && location.hostname !== 'localhost') {
-          this.showError('請使用 HTTPS 部署。');
-          return;
+          this.showError('請使用 HTTPS 或在 localhost 執行，否則無法存取相機。');
+          return false;
         }
+        return true;
+      }
+
+      async startCameraFlow() {
+        if (!this.ensureHTTPS()) return;
         try {
-          const devices = await navigator.mediaDevices.enumerateDevices();
-          const videoDevices = devices.filter(d => d.kind === 'videoinput');
-          if (videoDevices.length === 0) throw new Error('無可用相機');
-          this.showPermissionDialog();
+          await this.initCamera(); // 直接嘗試開相機
         } catch (err) {
-          this.showPermissionDialog('無法存取相機，請檢查設定。');
+          // 失敗才顯示自製權限對話框
+          this.showPermissionDialog('需要您的允許以使用相機。若曾拒絕，請到瀏覽器設定開啟相機權限。');
         }
       }
 
       showPermissionDialog(message = '') {
-        if (message) document.querySelector('#permission-dialog .dialog-content p').textContent = message;
+        if (message) {
+          const p = document.querySelector('#permission-dialog .dialog-content p');
+          if (p) p.textContent = message;
+        }
         this.permissionDialog.classList.remove('hidden');
         this.startScreen.classList.add('hidden');
       }
@@ -405,37 +425,53 @@
       async initCamera() {
         try {
           this.updateStatus('初始化相機...');
-          let constraints = { video: { facingMode: 'environment' }, audio: false };
+          // 優先後置，並允許瀏覽器自行最佳化
+          let constraints = { video: { facingMode: { ideal: 'environment' } }, audio: false };
+
           let stream;
           try {
             stream = await navigator.mediaDevices.getUserMedia(constraints);
-          } catch {
-            constraints = { video: true };
-            stream = await navigator.mediaDevices.getUserMedia(constraints);
+          } catch (e) {
+            // 後備方案：任何可用相機
+            stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
           }
+
           this.camera.srcObject = stream;
+          this.camera.muted = true;
+          this.camera.playsInline = true;
+
+          await new Promise(resolve => {
+            const onLoaded = () => { this.camera.removeEventListener('loadedmetadata', onLoaded); resolve(); };
+            this.camera.addEventListener('loadedmetadata', onLoaded);
+          });
           await this.camera.play();
 
+          // 切換畫面
           this.permissionDialog.classList.add('hidden');
           this.cameraScreen.classList.remove('hidden');
           this.startScreen.classList.add('hidden');
+
+          // 掃描提示與引導圖
           this.scanTip.classList.remove('hidden');
-          setTimeout(() => this.scanTip.classList.add('show'), 100);
+          requestAnimationFrame(() => this.scanTip.classList.add('show'));
           this.targetBg.style.display = 'block';
+          this.targetBg.style.opacity = '0.2';
           this.targetBg.src = this.targetImageUrl;
 
+          // 初始化 MindAR（注意：只在 start() 成功後才掛 animationLoop，避免黑屏覆蓋）
           try {
-            this.startMindAR = await this.initMindAR();
+            await this.initMindAR();
             this.updateStatus('掃描特定圖片以顯示 3D 模型...');
             this.scanLine.style.display = 'block';
           } catch (e) {
             console.error('MindAR 初始化失敗:', e);
-            this.updateStatus('AR 載入失敗，但相機已啟動', 'error');
+            this.updateStatus('AR 模組載入失敗，僅提供相機畫面', 'error');
           }
         } catch (err) {
           console.error(err);
           this.showStartScreen();
-          this.showError(err.message || '初始化失敗');
+          this.showError(err?.message || '初始化失敗，請確認權限與瀏覽器支援度');
+          throw err;
         }
       }
 
@@ -446,7 +482,7 @@
           interpolationFactor: 0.03,
           maxTrackLost: 5,
           uiLoading: false,
-          uiScanning: '#status-tip',
+          uiScanning: false, // 使用自訂 UI，避免衝突
           filterMinCF: 0.1,
           filterBeta: 0.01
         });
@@ -462,33 +498,35 @@
         scene.add(dirLight);
 
         renderer.setClearColor(0x000000, 0);
-        renderer.setPixelRatio(window.devicePixelRatio * 0.8);
+        renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
 
         this.anchor = start.addAnchor(0);
         const group = new THREE.Group();
         this.anchor.group.add(group);
 
-        // 測試綠球
+        // 測試綠球（移到 anchor.group，僅在追蹤時顯示）
         const sphere = new THREE.Mesh(
           new THREE.SphereGeometry(0.05, 16, 16),
           new THREE.MeshBasicMaterial({ color: 0x00ff00 })
         );
         sphere.position.set(0, 0, -0.5);
-        scene.add(sphere);
+        this.anchor.group.add(sphere);
         this.testSphere = sphere;
 
+        // 模型群組
         this.modelGroup = new THREE.Group();
         group.add(this.modelGroup);
         this.modelGroup.visible = false;
         this.modelGroup.scale.set(0.01, 0.01, 0.01);
-        this.modelGroup.traverse(c => { if (c.isMesh) { c.material.transparent = true; c.material.opacity = 0; } });
+        this.setGroupOpacity(this.modelGroup, 0);
 
+        // 載入 GLTF
         const loader = new GLTFLoader();
         loader.load(this.modelUrl,
           gltf => {
             const model = gltf.scene;
             this.modelGroup.add(model);
-            model.traverse(c => { if (c.isMesh) { c.material.transparent = true; c.material.opacity = 0; } });
+            this.setGroupOpacity(model, 0);
             model.scale.set(0.5, 0.5, 0.5);
             model.rotation.set(0, Math.PI, 0);
             if (gltf.animations?.length) {
@@ -498,73 +536,125 @@
           },
           undefined,
           () => {
-            const box = new THREE.Mesh(new THREE.BoxGeometry(0.2,0.2,0.2), new THREE.MeshBasicMaterial({color:0xff0000, transparent:true, opacity:0}));
+            const box = new THREE.Mesh(
+              new THREE.BoxGeometry(0.2,0.2,0.2),
+              new THREE.MeshBasicMaterial({color:0xff0000, transparent:true, opacity:0})
+            );
             this.modelGroup.add(box);
           }
         );
 
-        renderer.setAnimationLoop(time => {
+        // 先啟動 MindAR，成功後再掛動畫迴圈（避免黑屏）
+        await start.start({ inputSrc: this.camera });
+        this.startMindAR = start;
+
+        // 動畫迴圈
+        this.renderer.setAnimationLoop(() => {
           const delta = this.clock.getDelta();
           if (this.mixer) this.mixer.update(delta);
 
           if (this.anchor.visible) {
             if (!this.isTargetDetected) {
               this.isTargetDetected = true;
-              this.scanTip.classList.add('hide');
-              setTimeout(() => this.scanTip.classList.add('hidden'), 500);
+
+              // 提示關閉
+              this.scanTip.classList.remove('show');
+              setTimeout(() => this.scanTip.classList.add('hidden'), 300);
+
+              // 掃描線收起
+              this.scanLine.style.display = 'none';
             }
+
+            // 顯示覆蓋影片
             this.overlayContainer.classList.remove('hidden');
+            this.overlayVideo.classList.remove('hidden');
             this.overlayVideo.style.transform = 'translate(-50%, -50%) translateY(0) scale(1)';
+            this.overlayVideo.play().catch(() => {});
+
+            // 顯示模型並旋轉
             this.modelGroup.visible = true;
             this.modelGroup.rotation.y += 0.5 * delta;
 
-            // model fade in
+            // 模型淡入 + 放大
             if (this.modelFadeInProgress < 1) {
-              this.modelFadeInProgress += delta / (this.fadeInDuration / 1000);
-              this.modelFadeInProgress = Math.min(this.modelFadeInProgress, 1);
+              this.modelFadeInProgress = Math.min(this.modelFadeInProgress + delta / (this.fadeInDuration / 1000), 1);
               const s = 0.01 + (0.5 - 0.01) * this.modelFadeInProgress;
               this.modelGroup.scale.set(s, s, s);
-              this.modelGroup.traverse(c => { if (c.isMesh) c.material.opacity = this.modelFadeInProgress; });
+              this.setGroupOpacity(this.modelGroup, this.modelFadeInProgress);
             }
 
-            // target-bg fade out
+            // 引導圖淡出
             if (this.targetBgFadeOutProgress < 1) {
-              this.targetBgFadeOutProgress += delta / (this.targetBgFadeDuration / 1000);
-              this.targetBgFadeOutProgress = Math.min(this.targetBgFadeOutProgress, 1);
+              this.targetBgFadeOutProgress = Math.min(this.targetBgFadeOutProgress + delta / (this.targetBgFadeDuration / 1000), 1);
               this.targetBg.style.opacity = 0.2 * (1 - this.targetBgFadeOutProgress);
               if (this.targetBgFadeOutProgress >= 1) this.targetBg.style.display = 'none';
             }
           } else {
             if (this.isTargetDetected) {
               this.isTargetDetected = false;
-              this.scanTip.classList.remove('hidden','hide');
-              setTimeout(() => this.scanTip.classList.add('show'), 100);
+
+              // 顯示提示
+              this.scanTip.classList.remove('hidden');
+              requestAnimationFrame(() => this.scanTip.classList.add('show'));
+
+              // 引導圖顯示
               this.targetBg.style.display = 'block';
               this.targetBg.style.opacity = '0.2';
+
+              // 掃描線顯示
+              this.scanLine.style.display = 'block';
             }
-            this.overlayContainer.classList.add('hidden');
+
+            // 覆蓋影片收起
+            this.overlayVideo.pause();
+            this.overlayVideo.classList.add('hidden');
             this.overlayVideo.style.transform = 'translate(-50%, -50%) translateY(100%) scale(0.8)';
+            this.overlayContainer.classList.add('hidden');
+
+            // 模型隱藏與狀態重置
             this.modelGroup.visible = false;
             this.modelFadeInProgress = 0;
-            this.modelGroup.scale.set(0.01,0.01,0.01);
-            this.modelGroup.traverse(c => { if (c.isMesh) c.material.opacity = 0; });
+            this.setGroupOpacity(this.modelGroup, 0);
+            this.modelGroup.scale.set(0.01, 0.01, 0.01);
+            this.targetBgFadeOutProgress = 0;
           }
 
-          this.testSphere.rotation.y += 0.5 * delta;
-          renderer.render(scene, this.camera3D);
+          if (this.testSphere) this.testSphere.rotation.y += 0.5 * delta;
+          this.renderer.render(this.scene, this.camera3D);
         });
 
-        await start.start({ inputSrc: this.camera });
-        return start;
+        // 啟用拖曳旋轉
+        this.initDragControls();
+      }
+
+      setGroupOpacity(root, opacity) {
+        root.traverse(c => {
+          if (c.isMesh && c.material) {
+            if (Array.isArray(c.material)) {
+              c.material.forEach(m => { m.transparent = true; m.opacity = opacity; });
+            } else {
+              c.material.transparent = true;
+              c.material.opacity = opacity;
+            }
+          }
+        });
       }
 
       async toggleTorch() {
         try {
-          const track = this.camera.srcObject.getVideoTracks()[0];
+          const track = this.camera.srcObject?.getVideoTracks?.()[0];
+          const caps = track?.getCapabilities?.();
+          if (!track || !caps || !caps.torch) {
+            this.updateStatus('此裝置不支援手電筒', 'error');
+            return;
+          }
           await track.applyConstraints({ advanced: [{ torch: !this.isTorchOn }] });
           this.isTorchOn = !this.isTorchOn;
           this.btnTorch.style.opacity = this.isTorchOn ? '0.7' : '1';
-        } catch (e) { console.warn('手電筒不支援', e); }
+        } catch (e) {
+          console.warn('手電筒不支援或被拒絕', e);
+          this.updateStatus('手電筒開啟失敗', 'error');
+        }
       }
 
       captureScreenshot() {
@@ -572,25 +662,46 @@
         const h = this.camera.videoHeight;
         if (!w || !h) return this.updateStatus('相機未就緒', 'error');
 
-        const ctx = this.captureCanvas.getContext('2d');
-        this.captureCanvas.width = w;
-        this.captureCanvas.height = h;
+        const canvas = this.captureCanvas;
+        const ctx = canvas.getContext('2d');
+        canvas.width = w;
+        canvas.height = h;
+
+        // 底層相機影像
         ctx.drawImage(this.camera, 0, 0, w, h);
 
+        // 疊上 AR 畫面（如有）
         if (this.renderer && this.isTargetDetected) {
+          // 確保 renderer 最新
           this.renderer.render(this.scene, this.camera3D);
           ctx.drawImage(this.renderer.domElement, 0, 0, w, h);
         }
 
-        this.captureCanvas.toBlob(blob => {
+        const toBlobSafe = () => new Promise(resolve => {
+          if (canvas.toBlob) {
+            canvas.toBlob(b => resolve(b), 'image/png', 0.95);
+          } else {
+            // iOS 備援
+            const dataURL = canvas.toDataURL('image/png', 0.95);
+            const byteString = atob(dataURL.split(',')[1]);
+            const mimeString = dataURL.split(',')[0].split(':')[1].split(';')[0];
+            const ab = new ArrayBuffer(byteString.length);
+            const ia = new Uint8Array(ab);
+            for (let i = 0; i < byteString.length; i++) ia[i] = byteString.charCodeAt(i);
+            resolve(new Blob([ab], { type: mimeString }));
+          }
+        });
+
+        toBlobSafe().then(blob => {
           const filename = `ar-${Date.now()}.png`;
-          if (navigator.share && navigator.canShare && navigator.canShare({ files: [new File([blob], filename, {type:'image/png'})] })) {
-            navigator.share({ title: 'AR 截圖', files: [new File([blob], filename, {type:'image/png'})] })
+          const file = new File([blob], filename, { type: 'image/png' });
+          if (navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
+            navigator.share({ title: 'AR 截圖', files: [file] })
               .catch(() => this.downloadFallback(blob, filename));
           } else {
             this.downloadFallback(blob, filename);
           }
-        }, 'image/png', 0.95);
+        });
       }
 
       downloadFallback(blob, filename) {
@@ -602,15 +713,54 @@
         this.updateStatus('截圖已下載');
       }
 
-      updateStatus(text, type='info') {
+      updateStatus(text, type = 'info') {
         this.statusText.textContent = text;
         this.statusTip.classList.remove('hidden');
         this.statusTip.style.background = type === 'error' ? 'rgba(255,0,0,0.7)' : 'rgba(0,0,0,0.7)';
-        setTimeout(() => this.statusTip.classList.add('hidden'), 3000);
+        if (this.statusHideTimer) clearTimeout(this.statusHideTimer);
+        this.statusHideTimer = setTimeout(() => this.statusTip.classList.add('hidden'), 3000);
       }
 
       handleResize() {
-        if (this.startMindAR) this.startMindAR.resize();
+        if (this.startMindAR?.resize) this.startMindAR.resize();
+      }
+
+      initDragControls() {
+        let dragging = false;
+        let lastX = 0;
+        const el = this.cameraContainer;
+
+        const getX = (e) => e.touches ? e.touches[0].clientX : e.clientX;
+
+        const onDown = (e) => { dragging = true; lastX = getX(e); };
+        const onMove = (e) => {
+          if (!dragging || !this.modelGroup || !this.anchor?.visible) return;
+          const x = getX(e);
+          const dx = x - lastX;
+          lastX = x;
+          this.modelGroup.rotation.y += dx * 0.005;
+        };
+        const onUp = () => { dragging = false; };
+
+        el.addEventListener('pointerdown', onDown);
+        el.addEventListener('pointermove', onMove);
+        el.addEventListener('pointerup', onUp);
+        el.addEventListener('pointerleave', onUp);
+        el.addEventListener('touchstart', onDown, { passive: true });
+        el.addEventListener('touchmove', onMove, { passive: true });
+        el.addEventListener('touchend', onUp);
+      }
+
+      async destroy() {
+        try {
+          await this.startMindAR?.stop?.();
+        } catch {}
+        try {
+          this.renderer?.setAnimationLoop(null);
+        } catch {}
+        const tracks = this.camera.srcObject?.getTracks?.() || [];
+        tracks.forEach(t => t.stop());
+        this.camera.srcObject = null;
       }
     }
 
